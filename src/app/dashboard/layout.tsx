@@ -1,11 +1,19 @@
 "use client";
 
-import React from "react";
+import React, { useState, useTransition } from "react";
 import { usePathname } from "next/navigation";
-import { logoutAction } from "../login/actions";
+import { logoutAction } from "../login/actions"; // Ajuste o caminho se necessário
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const [isPending, startTransition] = useTransition();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // Estado para o menu mobile
+
+  const handleLogout = () => {
+    startTransition(async () => {
+      await logoutAction();
+    });
+  };
 
   // Função auxiliar para aplicar as cores com base na rota ativa
   const getLinkClass = (href: string) => {
@@ -21,19 +29,42 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   };
 
   return (
-    <div className="flex h-screen bg-slate-100 dark:bg-slate-950 font-sans overflow-hidden">
+    <div className="flex h-screen bg-slate-100 dark:bg-slate-950 font-sans overflow-hidden relative">
       
-      {/* 1. SIDEBAR LATERAL */}
-      <aside className="flex flex-col w-64 h-full bg-slate-900 border-r border-slate-800 text-slate-300 flex-shrink-0">
+      {/* 1. MÁSCARA ESCURA EM MOBILE (Fecha o menu ao clicar fora) */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/60 z-40 lg:hidden backdrop-blur-sm"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* 2. SIDEBAR LATERAL (RESPONSIVA) */}
+      <aside className={`
+        fixed inset-y-0 left-0 w-64 h-full bg-slate-900 border-r border-slate-800 text-slate-300 flex-shrink-0 z-50 flex flex-col
+        transition-transform duration-300 ease-in-out
+        lg:static lg:translate-x-0
+        ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"}
+      `}>
         
-        <div className="h-16 flex items-center px-6 border-b border-slate-800 bg-slate-950">
+        {/* Header da Sidebar */}
+        <div className="h-16 flex items-center justify-between px-6 border-b border-slate-800 bg-slate-950">
           <span className="text-lg font-bold text-white tracking-tight">
             sankula<span className="text-indigo-400">Salarios</span>
           </span>
+          {/* Botão para fechar a sidebar em Mobile */}
+          <button 
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="lg:hidden p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 focus:outline-none"
+          >
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
 
-        {/* Links de Navegação Dinâmicos */}
-        <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
+        {/* Links de Navegação */}
+        <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto" onClick={() => setIsMobileMenuOpen(false)}>
           <p className="px-2 text-[10px] font-semibold tracking-wider text-slate-500 uppercase mb-2">
             Monitorização
           </p>
@@ -78,6 +109,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </a>
         </nav>
 
+        {/* Footer da Sidebar */}
         <div className="p-4 border-t border-slate-800 bg-slate-950 flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center font-bold text-white text-sm">
             DS
@@ -89,38 +121,47 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
 
-      {/* 2. ÁREA DE CONTEÚDO PRINCIPAL */}
-      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+      {/* 3. ÁREA DE CONTEÚDO PRINCIPAL */}
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden h-full">
         
-          {/* NAVBAR SUPERIOR */}
-        <header className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 z-10">
-          <div className="flex items-center gap-4">
-            <h2 className="text-sm font-medium text-slate-800 dark:text-white">
-              SankulaSalarios <span className="mx-2 text-slate-300">/</span> <span className="font-semibold">Consola Central</span>
+        {/* NAVBAR RESPONSIVA */}
+        <header className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 sm:px-6 z-10 flex-shrink-0">
+          
+          <div className="flex items-center gap-3">
+            {/* Botão Hambúrguer (Visível apenas em Mobile/Tablet) */}
+            <button 
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="lg:hidden p-2 -ml-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 focus:outline-none cursor-pointer"
+            >
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+
+            <h2 className="text-xs sm:text-sm font-medium text-slate-800 dark:text-white truncate">
+              SankulaSalarios <span className="mx-1 sm:mx-2 text-slate-300">/</span> <span className="font-semibold">Consola Central</span>
             </h2>
           </div>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 sm:gap-4">
             {/* Status do Cron Sync */}
-            <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-              <span className="text-xs font-medium text-emerald-800 dark:text-emerald-400">Sincronizadores OK</span>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0"></div>
+              <span className="text-[10px] sm:text-xs font-medium text-emerald-800 dark:text-emerald-400 whitespace-nowrap">Sincronizadores OK</span>
             </div>
             
-            {/* Botão Sair corrigido com redirecionamento nativo */}
             <button 
-            onClick={async () => {
-                await logoutAction();
-            }}
-            className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 text-sm font-medium transition-colors cursor-pointer"
+              onClick={handleLogout}
+              disabled={isPending}
+              className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 text-sm font-medium transition-colors cursor-pointer disabled:opacity-50"
             >
-            Sair
+              {isPending ? "A sair..." : "Sair"}
             </button>
           </div>
         </header>
 
         {/* CONTEÚDO DINÂMICO */}
-        <main className="flex-1 overflow-y-auto p-6 md:p-8 flex flex-col justify-between">
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 flex flex-col justify-between">
           <div className="max-w-7xl w-full mx-auto">
             {children}
           </div>
