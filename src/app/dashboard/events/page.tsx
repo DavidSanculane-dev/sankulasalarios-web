@@ -3,7 +3,7 @@ import { attendanceEvents, employees, devices, companies } from "@/db/schema";
 import { desc, eq, and, gte, lte } from "drizzle-orm";
 import MapModal from "./map-modal";
 import ExportButton from "./export-button";
-
+import { createClient } from "@/lib/server";
 
 interface PageProps {
   searchParams: Promise<{
@@ -16,21 +16,38 @@ interface PageProps {
 }
 
 export default async function EventsHistoryPage({ searchParams }: PageProps) {
-  // 1. Aguarda os parâmetros de pesquisa vindos do URL
+  // 1. Aguarda os parâmetros de pesquisa vindos do URL e valida a sessão do utilizador
   const filters = await searchParams;
-
-  // 2. Carrega listas auxiliares para alimentar os seletores de filtro
-  const activeCompanies = await db.select({ id: companies.id, name: companies.name }).from(companies);
-  const activeDevices = await db.select({ id: devices.id, name: devices.name }).from(devices);
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
   
-  const allEmployeesList = await db.select({ id: employees.id, fullName: employees.fullName, employeeCode: employees.employeeCode }).from(employees).where(eq(employees.active, true));
+  // Captura o escopo de acesso do utilizador ligado (ID da empresa ou 'global')
+  const userCompanyId = user?.user_metadata?.companyId || "global";
+  const isGlobalAdmin = userCompanyId === "global";
 
-  // 3. Constrói as condições de filtro dinâmicas para a query do Drizzle
+  // 2. Carrega listas auxiliares (Se for gestor restrito, lista apenas a sua própria empresa)
+  const activeCompanies = isGlobalAdmin
+    ? await db.select({ id: companies.id, name: companies.name }).from(companies)
+    : await db.select({ id: companies.id, name: companies.name }).from(companies).where(eq(companies.id, userCompanyId));
+
+  const activeDevices = isGlobalAdmin
+    ? await db.select({ id: devices.id, name: devices.name }).from(devices)
+    : await db.select({ id: devices.id, name: devices.name }).from(devices).where(eq(devices.companyId, userCompanyId));
+  
+  const allEmployeesList = isGlobalAdmin
+    ? await db.select({ id: employees.id, fullName: employees.fullName, employeeCode: employees.employeeCode }).from(employees).where(eq(employees.active, true))
+    : await db.select({ id: employees.id, fullName: employees.fullName, employeeCode: employees.employeeCode }).from(employees).where(and(eq(employees.active, true), eq(employees.companyId, userCompanyId)));
+
+  // 3. Constrói as condições de filtro dinâmicas
   const conditions = [];
 
-  if (filters.companyId) {
+  // TRANCA DE SEGURANÇA: Se não for global, força estritamente o filtro da empresa dele
+  if (!isGlobalAdmin) {
+    conditions.push(eq(attendanceEvents.companyId, userCompanyId));
+  } else if (filters.companyId) {
     conditions.push(eq(attendanceEvents.companyId, filters.companyId));
   }
+
   if (filters.deviceId) {
     conditions.push(eq(attendanceEvents.deviceId, filters.deviceId));
   }
@@ -44,7 +61,7 @@ export default async function EventsHistoryPage({ searchParams }: PageProps) {
     conditions.push(lte(attendanceEvents.eventTime, new Date(`${filters.endDate}T23:59:59Z`)));
   }
 
-  // 4. Executa a query principal com os filtros aplicados
+  // 4. Executa a query principal com os filtros de isolamento aplicados
   const events = await db
     .select({
       id: attendanceEvents.id,
@@ -52,7 +69,7 @@ export default async function EventsHistoryPage({ searchParams }: PageProps) {
       eventType: attendanceEvents.eventType,
       verifyMethod: attendanceEvents.verifyMethod,
       rawDeviceUserId: attendanceEvents.rawDeviceUserId,
-      deviceId: attendanceEvents.deviceId, // <-- ADICIONE ESTA LINHA EXATAMENTE AQUI
+      deviceId: attendanceEvents.deviceId,
       employeeName: employees.fullName,
       deviceName: devices.name,
       deviceBrand: devices.brand,
@@ -66,11 +83,10 @@ export default async function EventsHistoryPage({ searchParams }: PageProps) {
     .orderBy(desc(attendanceEvents.eventTime))
     .limit(100);
 
-  // 5. Cálculos das métricas rápidas com base no resultado filtrado
+  // 5. Cálculos das métricas rápidas baseados apenas no escopo permitido
   const totalIn = events.filter((e) => e.eventType === "check_in").length;
   const totalOut = events.filter((e) => e.eventType === "check_out").length;
   const unmapped = events.filter((e) => !e.employeeName).length;
-
   return (
     <div className="space-y-6">
       {/* Cabeçalho */}
@@ -79,7 +95,6 @@ export default async function EventsHistoryPage({ searchParams }: PageProps) {
           <h1 className="text-2xl font-bold text-slate-900">Histórico de Eventos</h1>
           <p className="text-sm text-slate-500">Registo completo e auditoria filtrável de picagens biométricas.</p>
         </div>
-        {/* Injeção do Componente Cliente Responsável pelo Download */}
         <ExportButton />
       </div>
 
@@ -88,8 +103,13 @@ export default async function EventsHistoryPage({ searchParams }: PageProps) {
         <form method="GET" className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 items-end">
           <div>
             <label className="block text-xs font-semibold text-slate-500 uppercase">Empresa</label>
-            <select name="companyId" defaultValue={filters.companyId || ""} className="mt-1 block w-full px-3 py-1.5 border border-slate-300 bg-white rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-              <option value="">Todas</option>
+            <select 
+              name="companyId" 
+              disabled={!isGlobalAdmin}
+              defaultValue={!isGlobalAdmin ? userCompanyId : (filters.companyId || "")} 
+              className="mt-1 block w-full px-3 py-1.5 border border-slate-300 bg-white rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
+            >
+              {isGlobalAdmin && <option value="">Todas</option>}
               {activeCompanies.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
@@ -130,7 +150,8 @@ export default async function EventsHistoryPage({ searchParams }: PageProps) {
           </div>
         </form>
       </div>
-            {/* Cartões de Métricas Dinâmicas */}
+
+      {/* Cartões de Métricas Dinâmicas */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-sm">
           <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Entradas Localizadas</p>
@@ -182,7 +203,7 @@ export default async function EventsHistoryPage({ searchParams }: PageProps) {
               ) : (
                 events.map((e) => (
                   <tr key={e.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="p-4">
+                    <td className="p-4">
                       {e.employeeName ? (
                         <div className="flex flex-col">
                           <span className="font-semibold text-slate-900">{e.employeeName}</span>
@@ -190,7 +211,6 @@ export default async function EventsHistoryPage({ searchParams }: PageProps) {
                         </div>
                       ) : (
                         <div className="flex flex-col">
-                          {/* Substituímos o texto estático pelo Modal interativo */}
                           <MapModal 
                             deviceId={e.deviceId}
                             deviceUserId={e.rawDeviceUserId}

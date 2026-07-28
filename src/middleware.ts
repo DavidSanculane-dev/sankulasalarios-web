@@ -33,21 +33,32 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // Verifica se existe uma sessão ativa
+  // 1. Recupera o utilizador autenticado
   const { data: { user } } = await supabase.auth.getUser();
+  const pathname = request.nextUrl.pathname;
 
-  // PROTEÇÃO: Se tentar aceder ao dashboard sem estar autenticado, vai para o login
-  if (!user && request.nextUrl.pathname.startsWith("/dashboard")) {
+  // 2. PROTEÇÃO DE LOGIN: Se tentar ir ao painel sem sessão, expulsa para o login
+  if (!user && pathname.startsWith("/dashboard")) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  // RESTRICÇÃO REMOVIDA: Retirámos o redirecionamento automático do login para o dashboard.
-  // Agora, mesmo que o utilizador já tenha sessão no Supabase, a rota /login será carregada normalmente.
+  // 3. PROTEÇÃO DE NÍVEL (ROLE): Tranca rotas administrativas para gestores comuns
+  if (user) {
+    const userRole = user.user_metadata?.role || "gestor";
+
+    // Lista de rotas estritamente administrativas (apenas para admin)
+    const isAdminRoute = pathname.startsWith("/dashboard/companies") || pathname.startsWith("/dashboard/users");
+
+    if (userRole !== "admin" && isAdminRoute) {
+      // Se for gestor e tentar entrar, é redirecionado de volta para a home do dashboard
+      return NextResponse.redirect(new URL("/dashboard", request.url));
+    }
+  }
 
   return response;
 }
 
 export const config = {
-  // Executa o middleware apenas nas rotas do dashboard
+  // Executa o filtro de segurança em todo o ecossistema interno
   matcher: ["/dashboard/:path*"],
 };

@@ -1,24 +1,50 @@
 import { db } from "@/db/client";
 import { employees, companies } from "@/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, and } from "drizzle-orm";
 import EmployeeModal from "./employee-modal";
 import EmployeeActions from "./employee-actions";
+import { createClient } from "@/lib/server";
 
 export default async function EmployeesPage() {
-  const allEmployees = await db
-    .select({
-      id: employees.id,
-      fullName: employees.fullName,
-      employeeCode: employees.employeeCode,
-      active: employees.active,
-      companyId: employees.companyId,
-      companyName: companies.name,
-    })
-    .from(employees)
-    .leftJoin(companies, eq(employees.companyId, companies.id))
-    .orderBy(desc(employees.createdAt));
+  // 1. Valida a sessão do utilizador conectado
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  const userCompanyId = user?.user_metadata?.companyId || "global";
+  const isGlobalAdmin = userCompanyId === "global";
 
-  const allCompanies = await db.select({ id: companies.id, name: companies.name }).from(companies);
+  // 2. Carrega os colaboradores com Join (Filtra se for gestor restrito)
+  const allEmployees = isGlobalAdmin
+    ? await db
+        .select({
+          id: employees.id,
+          fullName: employees.fullName,
+          employeeCode: employees.employeeCode,
+          active: employees.active,
+          companyId: employees.companyId,
+          companyName: companies.name,
+        })
+        .from(employees)
+        .leftJoin(companies, eq(employees.companyId, companies.id))
+        .orderBy(desc(employees.createdAt))
+    : await db
+        .select({
+          id: employees.id,
+          fullName: employees.fullName,
+          employeeCode: employees.employeeCode,
+          active: employees.active,
+          companyId: employees.companyId,
+          companyName: companies.name,
+        })
+        .from(employees)
+        .leftJoin(companies, eq(employees.companyId, companies.id))
+        .where(eq(employees.companyId, userCompanyId))
+        .orderBy(desc(employees.createdAt));
+
+  // 3. Carrega apenas as empresas que o operador tem direito de ver para o modal
+  const allCompanies = isGlobalAdmin
+    ? await db.select({ id: companies.id, name: companies.name }).from(companies)
+    : await db.select({ id: companies.id, name: companies.name }).from(companies).where(eq(companies.id, userCompanyId));
 
   return (
     <div className="space-y-6">
@@ -45,7 +71,7 @@ export default async function EmployeesPage() {
             {allEmployees.length === 0 ? (
               <tr>
                 <td colSpan={5} className="p-8 text-center text-slate-400">
-                  Nenhum colaborador carregado no sistema.
+                  Nenhum colaborador carregado no sistema para esta empresa.
                 </td>
               </tr>
             ) : (
@@ -77,4 +103,3 @@ export default async function EmployeesPage() {
     </div>
   );
 }
-

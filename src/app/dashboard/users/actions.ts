@@ -82,7 +82,7 @@ export async function createSystemUserAction(formData: FormData) {
       email: email.trim(),
       password: password,
       email_confirm: true, // Confirma o e-mail automaticamente
-      user_metadata: { role: role || "gestor" }, // Guarda o nível de acesso nos metadados
+      user_metadata: { role: role || "gestor", companyId: formData.get("companyId") as string }
     });
 
     if (error) {
