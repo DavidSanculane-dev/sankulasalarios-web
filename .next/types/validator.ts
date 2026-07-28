@@ -119,6 +119,33 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../src/app/api/events/export/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/events/export">> = Specific
+  const handler = {} as typeof import("../../src/app/api/events/export/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../src/app/api/teste/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/teste">> = Specific
+  const handler = {} as typeof import("../../src/app/api/teste/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../src/app/api/webhooks/biostation/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/webhooks/biostation">> = Specific
+  const handler = {} as typeof import("../../src/app/api/webhooks/biostation/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../src/app/api/webhooks/hikvision/route.ts
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/webhooks/hikvision">> = Specific

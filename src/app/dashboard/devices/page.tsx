@@ -1,6 +1,8 @@
 import { db } from "@/db/client";
 import { devices, companies } from "@/db/schema";
 import { desc, eq } from "drizzle-orm";
+import DeviceModal from "./device-modal";
+import DeviceActions from "./device-actions"; // Importação do novo componente
 
 export default async function DevicesPage() {
   const allDevices = await db
@@ -11,11 +13,14 @@ export default async function DevicesPage() {
       serialNumber: devices.serialNumber,
       siteName: devices.siteName,
       lastSeenAt: devices.lastSeenAt,
+      companyId: devices.companyId, // Necessário para alimentar o seletor na edição
       companyName: companies.name,
     })
     .from(devices)
     .leftJoin(companies, eq(devices.companyId, companies.id))
     .orderBy(desc(devices.createdAt));
+
+  const allCompanies = await db.select({ id: companies.id, name: companies.name }).from(companies);
 
   return (
     <div className="space-y-6">
@@ -24,9 +29,7 @@ export default async function DevicesPage() {
           <h1 className="text-2xl font-bold text-slate-900">Terminais Biométricos</h1>
           <p className="text-sm text-slate-500">Estado e ligação física dos relógios de ponto integrados.</p>
         </div>
-        <button className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg shadow-sm transition-colors">
-          Vincular Terminal
-        </button>
+        <DeviceModal companiesList={allCompanies} />
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
@@ -38,12 +41,13 @@ export default async function DevicesPage() {
               <th className="p-4">Empresa Associada</th>
               <th className="p-4">Localização (Site)</th>
               <th className="p-4">Último Sinal (Heartbeat)</th>
+              <th className="p-4 text-right">Ações</th>
             </tr>
           </thead>
           <tbody className="text-sm divide-y divide-slate-200 text-slate-700">
             {allDevices.length === 0 ? (
               <tr>
-                <td colSpan={5} className="p-8 text-center text-slate-400">Nenhum terminal biométrico monitorizado.</td>
+                <td colSpan={6} className="p-8 text-center text-slate-400">Nenhum terminal biométrico monitorizado.</td>
               </tr>
             ) : (
               allDevices.map((d) => (
@@ -69,6 +73,9 @@ export default async function DevicesPage() {
                         Nunca contactou
                       </span>
                     )}
+                  </td>
+                  <td className="p-4 text-right">
+                    <DeviceActions device={d} companiesList={allCompanies} />
                   </td>
                 </tr>
               ))

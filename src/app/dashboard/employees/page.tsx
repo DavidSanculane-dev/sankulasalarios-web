@@ -1,6 +1,8 @@
 import { db } from "@/db/client";
 import { employees, companies } from "@/db/schema";
 import { desc, eq } from "drizzle-orm";
+import EmployeeModal from "./employee-modal";
+import EmployeeActions from "./employee-actions";
 
 export default async function EmployeesPage() {
   const allEmployees = await db
@@ -9,11 +11,14 @@ export default async function EmployeesPage() {
       fullName: employees.fullName,
       employeeCode: employees.employeeCode,
       active: employees.active,
+      companyId: employees.companyId,
       companyName: companies.name,
     })
     .from(employees)
     .leftJoin(companies, eq(employees.companyId, companies.id))
     .orderBy(desc(employees.createdAt));
+
+  const allCompanies = await db.select({ id: companies.id, name: companies.name }).from(companies);
 
   return (
     <div className="space-y-6">
@@ -22,9 +27,7 @@ export default async function EmployeesPage() {
           <h1 className="text-2xl font-bold text-slate-900">Colaboradores</h1>
           <p className="text-sm text-slate-500">Base central de trabalhadores ativos e códigos de empresa.</p>
         </div>
-        <button className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg shadow-sm transition-colors">
-          Adicionar Colaborador
-        </button>
+        <EmployeeModal companiesList={allCompanies} />
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
@@ -35,12 +38,15 @@ export default async function EmployeesPage() {
               <th className="p-4">Código de Funcionário</th>
               <th className="p-4">Empresa / Alocação</th>
               <th className="p-4">Estado</th>
+              <th className="p-4 text-right">Ações</th>
             </tr>
           </thead>
           <tbody className="text-sm divide-y divide-slate-200 text-slate-700">
             {allEmployees.length === 0 ? (
               <tr>
-                <td colSpan={4} className="p-8 text-center text-slate-400">Nenhum colaborador carregado no sistema.</td>
+                <td colSpan={5} className="p-8 text-center text-slate-400">
+                  Nenhum colaborador carregado no sistema.
+                </td>
               </tr>
             ) : (
               allEmployees.map((emp) => (
@@ -59,6 +65,9 @@ export default async function EmployeesPage() {
                       </span>
                     )}
                   </td>
+                  <td className="p-4 text-right">
+                    <EmployeeActions employee={emp} companiesList={allCompanies} />
+                  </td>
                 </tr>
               ))
             )}
@@ -68,3 +77,4 @@ export default async function EmployeesPage() {
     </div>
   );
 }
+

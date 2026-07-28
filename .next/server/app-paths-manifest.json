@@ -1,8 +1,16 @@
 {
+  "/api/teste/route": "app/api/teste/route.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/webhooks/biostation/route": "app/api/webhooks/biostation/route.js",
+  "/api/events/export/route": "app/api/events/export/route.js",
+  "/api/cron/suprema-sync/route": "app/api/cron/suprema-sync/route.js",
+  "/api/webhooks/zkteco/route": "app/api/webhooks/zkteco/route.js",
+  "/api/webhooks/hikvision/route": "app/api/webhooks/hikvision/route.js",
   "/login/page": "app/login/page.js",
+  "/page": "app/page.js",
+  "/dashboard/companies/page": "app/dashboard/companies/page.js",
   "/dashboard/page": "app/dashboard/page.js",
   "/dashboard/events/page": "app/dashboard/events/page.js",
-  "/dashboard/employees/page": "app/dashboard/employees/page.js",
   "/dashboard/devices/page": "app/dashboard/devices/page.js",
-  "/dashboard/companies/page": "app/dashboard/companies/page.js"
+  "/dashboard/employees/page": "app/dashboard/employees/page.js"
 }
