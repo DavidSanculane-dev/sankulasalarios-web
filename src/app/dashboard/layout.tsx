@@ -1,13 +1,43 @@
 "use client";
 
-import React, { useState, useTransition } from "react";
+import React, { useState, useEffect, useTransition } from "react";
 import { usePathname } from "next/navigation";
-import { logoutAction } from "../login/actions"; // Ajuste o caminho se necessário
+import { logoutAction } from "../login/actions";
+import { createBrowserClient } from "@supabase/ssr";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // Estado para o menu mobile
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  
+  // Estados para carregar o utilizador atual dinamicamente do Supabase Auth
+  const [userEmail, setUserEmail] = useState<string>("A carregar...");
+  const [userRole, setUserRole] = useState<string>("Operador");
+  const [avatarInitial, setAvatarInitial] = useState<string>("U");
+
+  // Hook que faz a pesquisa no Supabase Auth no momento em que a app carrega
+  useEffect(() => {
+    const supabase = createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+
+    async function getUserData() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && user.email) {
+        setUserEmail(user.email);
+        
+        // Mapeia a permissão (role) com base nos metadados que guardou no cadastro
+        const role = user.user_metadata?.role || "gestor";
+        setUserRole(role === "admin" ? "Administrador" : "Gestor HR");
+        
+        // Extrai a primeira letra do e-mail em maiúscula para o avatar
+        setAvatarInitial(user.email.charAt(0).toUpperCase());
+      }
+    }
+
+    getUserData();
+  }, []);
 
   const handleLogout = () => {
     startTransition(async () => {
@@ -15,7 +45,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     });
   };
 
-  // Função auxiliar para aplicar as cores com base na rota ativa
   const getLinkClass = (href: string) => {
     const isActive = pathname === href;
     return isActive
@@ -23,7 +52,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       : "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition-colors";
   };
 
-  // Função auxiliar para mudar a cor do ícone SVG
   const getIconClass = (href: string) => {
     return pathname === href ? "w-5 h-5 text-indigo-200" : "w-5 h-5 text-slate-500";
   };
@@ -31,7 +59,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex h-screen bg-slate-100 dark:bg-slate-950 font-sans overflow-hidden relative">
       
-      {/* 1. MÁSCARA ESCURA EM MOBILE (Fecha o menu ao clicar fora) */}
+      {/* MÁSCARA ESCURA EM MOBILE */}
       {isMobileMenuOpen && (
         <div 
           className="fixed inset-0 bg-slate-900/60 z-40 lg:hidden backdrop-blur-sm"
@@ -39,7 +67,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         />
       )}
 
-      {/* 2. SIDEBAR LATERAL (RESPONSIVA) */}
+      {/* SIDEBAR LATERAL RESPONSIVA */}
       <aside className={`
         fixed inset-y-0 left-0 w-64 h-full bg-slate-900 border-r border-slate-800 text-slate-300 flex-shrink-0 z-50 flex flex-col
         transition-transform duration-300 ease-in-out
@@ -47,12 +75,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"}
       `}>
         
-        {/* Header da Sidebar */}
         <div className="h-16 flex items-center justify-between px-6 border-b border-slate-800 bg-slate-950">
           <span className="text-lg font-bold text-white tracking-tight">
             sankula<span className="text-indigo-400">Salarios</span>
           </span>
-          {/* Botão para fechar a sidebar em Mobile */}
           <button 
             onClick={() => setIsMobileMenuOpen(false)}
             className="lg:hidden p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 focus:outline-none"
@@ -107,28 +133,35 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </svg>
             Empresas / Clientes
           </a>
-        </nav>
 
-        {/* Footer da Sidebar */}
+          <a href="/dashboard/users" className={getLinkClass("/dashboard/users")}>
+            <svg className={getIconClass("/dashboard/users")} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            Acessos do Sistema
+          </a>
+        </nav>
+        {/* FOOTER DA SIDEBAR DINÂMICO */}
         <div className="p-4 border-t border-slate-800 bg-slate-950 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center font-bold text-white text-sm">
-            DS
+          <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center font-bold text-white text-sm uppercase flex-shrink-0">
+            {avatarInitial}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-white truncate">David Sanculane</p>
-            <p className="text-[10px] text-slate-400 truncate">Administrador</p>
+            <p className="text-xs font-semibold text-white truncate" title={userEmail}>
+              {userEmail.split("@")[0]}
+            </p>
+            <p className="text-[10px] text-slate-400 truncate">{userRole}</p>
           </div>
         </div>
       </aside>
 
-      {/* 3. ÁREA DE CONTEÚDO PRINCIPAL */}
+      {/* 2. ÁREA DE CONTEÚDO PRINCIPAL */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden h-full">
         
-        {/* NAVBAR RESPONSIVA */}
+        {/* NAVBAR SUPERIOR */}
         <header className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 sm:px-6 z-10 flex-shrink-0">
-          
           <div className="flex items-center gap-3">
-            {/* Botão Hambúrguer (Visível apenas em Mobile/Tablet) */}
             <button 
               onClick={() => setIsMobileMenuOpen(true)}
               className="lg:hidden p-2 -ml-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 focus:outline-none cursor-pointer"
@@ -137,14 +170,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
-
             <h2 className="text-xs sm:text-sm font-medium text-slate-800 dark:text-white truncate">
               SankulaSalarios <span className="mx-1 sm:mx-2 text-slate-300">/</span> <span className="font-semibold">Consola Central</span>
             </h2>
           </div>
           
           <div className="flex items-center gap-3 sm:gap-4">
-            {/* Status do Cron Sync */}
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0"></div>
               <span className="text-[10px] sm:text-xs font-medium text-emerald-800 dark:text-emerald-400 whitespace-nowrap">Sincronizadores OK</span>
@@ -160,13 +191,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </header>
 
-        {/* CONTEÚDO DINÂMICO */}
+        {/* CONTEÚDO PRINCIPAL (CHILDREN) E RODAPÉ */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 flex flex-col justify-between">
           <div className="max-w-7xl w-full mx-auto">
             {children}
           </div>
 
-          {/* RODAPÉ */}
           <footer className="mt-auto pt-6 border-t border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500 dark:text-slate-400">
             <p>
               SankulaSalarios desenvolvido com{" "}
