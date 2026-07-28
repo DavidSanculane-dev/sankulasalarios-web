@@ -1,8 +1,0 @@
-{
-  "crons": [
-    {
-      "path": "/api/cron/suprema-sync",
-      "schedule": "*/5 * * * *"
-    }
-  ]
-}
