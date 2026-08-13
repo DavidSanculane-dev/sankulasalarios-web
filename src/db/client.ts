@@ -2,13 +2,25 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
 
-// Adicionadas propriedades de timeout e limite para evitar ECONNRESET local
-const client = postgres(process.env.DATABASE_URL!, { 
-  prepare: false,
-  max: 10,             // Limita o máximo de conexões locais simultâneas
-  idle_timeout: 15,    // Fecha conexões paradas após 15 segundos
-  connect_timeout: 15  // Tempo máximo para tentar estabelecer ligação
-});
+// Previne a duplicação de conexões em ambiente de desenvolvimento local
+const globalForPostgres = globalThis as unknown as {
+  postgresClient: postgres.Sql | undefined;
+};
+
+const connectionString = process.env.DATABASE_URL!;
+
+const client =
+  globalForPostgres.postgresClient ??
+  postgres(connectionString, {
+    prepare: false,
+    max: 10,
+    idle_timeout: 15,
+    connect_timeout: 15,
+  });
+
+if (process.env.NODE_ENV !== "production") {
+  globalForPostgres.postgresClient = client;
+}
 
 export const db = drizzle(client, { schema });
 

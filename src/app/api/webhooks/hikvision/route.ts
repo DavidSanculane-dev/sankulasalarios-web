@@ -44,6 +44,12 @@ function mapEventType(attendanceStatus: string | undefined): "check_in" | "check
 }
 
 export async function POST(req: NextRequest) {
+  // Exemplo: /api/webhooks/hikvision?token=mota_engil_secure_hash_123
+  const token = req.nextUrl.searchParams.get("token");
+  if (token !== process.env.HIKVISION_WEBHOOK_SECRET) {
+    return new NextResponse("Não Autorizado", { status: 401 });
+  }
+
   const contentType = req.headers.get("content-type") ?? "";
 
   if (!contentType.includes("multipart")) {
@@ -71,10 +77,21 @@ export async function POST(req: NextRequest) {
 
         try {
           const json = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
-          const acsEvent = json.AcsEvent ?? json;
+          // A HikVision pode encapsular como json.AcsEvent ou json.EventNotificationAlert
+          const acsEvent = json.AcsEvent ?? json.EventNotificationAlert?.AccessControllerEvent ?? json;
+          
+          // Procurar o número de série dentro da estrutura padrão do JSON enviado pelo leitor
+          const detectedSerial = serialNumber || 
+                                 json.EventNotificationAlert?.macAddress || 
+                                 acsEvent.deviceID || 
+                                 acsEvent.serialNo;
+
+          if (!detectedSerial) {
+            throw new Error("Não foi possível detetar o Número de Série (SN) do dispositivo no payload.");
+          }
 
           const event = NormalizedEventSchema.parse({
-            deviceSerialNumber: serialNumber || acsEvent.deviceID || acsEvent.MACAddr,
+            deviceSerialNumber: detectedSerial,
             rawDeviceUserId: acsEvent.employeeNoString || acsEvent.cardNo || acsEvent.userType,
             eventTime: new Date(acsEvent.time ?? Date.now()),
             eventType: mapEventType(acsEvent.attendanceStatus),
@@ -103,5 +120,15 @@ export async function POST(req: NextRequest) {
     return new NextResponse(`Erro: ${errorMsg}`, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, processed });
+  const xmlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<ResponseStatus version="1.0">
+  <requestURL>/ISAPI/Event/notification</requestURL>
+  <statusCode>1</statusCode>
+  <statusString>OK</statusString>
+</ResponseStatus>`;
+
+  return new NextResponse(xmlResponse, {
+    status: 200,
+    headers: { "Content-Type": "application/xml" },
+  });
 }

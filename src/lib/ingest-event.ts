@@ -34,7 +34,8 @@ export async function ingestEvent(event: NormalizedEvent) {
     )
     .limit(1);
 
-  await db.insert(attendanceEvents).values({
+ // Grava o evento na base de dados
+  const insertPromise = db.insert(attendanceEvents).values({
     companyId: device.companyId,
     employeeId: mapping?.employeeId ?? null,
     deviceId: device.id,
@@ -45,10 +46,14 @@ export async function ingestEvent(event: NormalizedEvent) {
     rawPayload: event.rawPayload ?? null,
   });
 
-  await db
+  // Atualiza o ping do equipamento
+  const updatePromise = db
     .update(devices)
     .set({ lastSeenAt: new Date() })
     .where(eq(devices.id, device.id));
+
+  // Executa ambas as queries em simultâneo na base de dados
+  await Promise.all([insertPromise, updatePromise]);
 
   return { matched: !!mapping, deviceId: device.id };
 }
