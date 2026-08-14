@@ -2,57 +2,60 @@ import { NextRequest, NextResponse } from "next/server";
 import { ingestEvent } from "@/lib/ingest-event";
 import { NormalizedEventSchema } from "@/lib/normalized-event";
 
-/**
- * Protocolo ADMS (ZKTeco / BioTek / ESSL).
- *
- * IMPORTANTE: o corpo NÃO é JSON - é texto simples, linhas separadas por \n,
- * campos separados por \t (tab). O formato exato de cada linha de attlog
- * varia ligeiramente por modelo/firmware - confirma sempre com um dispositivo
- * real ou com a documentação "PUSH SDK" do teu modelo específico.
- *
- * Fluxo típico:
- *  1. GET  /iclock/cdata?SN=xxx&options=all   -> dispositivo regista-se / pede config
- *  2. POST /iclock/cdata?SN=xxx&table=ATTLOG  -> dispositivo envia registos de ponto
- *  3. GET  /iclock/getrequest?SN=xxx          -> dispositivo pergunta se há comandos pendentes
- *
- * O dispositivo espera respostas em TEXTO SIMPLES, não em JSON. Se a resposta
- * não for a esperada, o dispositivo assume falha e reenvia os dados.
- */
-
-// Body chega como texto simples, não precisamos (nem queremos) o parser JSON do Next
 export const dynamic = "force-dynamic";
 
 function parseAttendanceLine(line: string) {
-  // Formato mais comum: PIN <TAB> timestamp <TAB> status <TAB> verify <TAB> workcode ...
+  // O padrão ADMS separa os dados estritamente por tabulações (\t)
   const parts = line.trim().split("\t");
   if (parts.length < 2) return null;
 
   const [pin, timeStr, statusRaw, verifyRaw] = parts;
 
-  // status: 0 = check-in, 1 = check-out (convenção comum, mas CONFIRMA no teu dispositivo)
-  const eventType =
-    statusRaw === "0" ? "check_in" : statusRaw === "1" ? "check_out" : "unknown";
+  // Mapeamento expandido de Status ADMS (ZKTeco)
+  // 0, 4 = Entrada / 1, 5 = Saída
+  let eventType: "check_in" | "check_out" | "unknown" = "unknown";
+  if (statusRaw === "0" || statusRaw === "4") eventType = "check_in";
+  if (statusRaw === "1" || statusRaw === "5") eventType = "check_out";
 
-  const verifyMap: Record<string, string> = {
+  // Tabela oficial de métodos de verificação (PUSH SDK ZKTeco)
+  const verifyMap: Record<string, "fingerprint" | "face" | "card" | "password" | "unknown"> = {
     "0": "password",
     "1": "fingerprint",
     "2": "card",
+    "3": "password",
+    "4": "fingerprint",
     "15": "face",
+    "25": "face" // Reconhecimento facial por luz visível moderna (ex: SpeedFace)
   };
+
+  // Correção da Data: Transforma "2026-07-01 08:30:00" num formato interpretável de forma segura pela Vercel
+  // Assumindo a hora local da empresa (ex: Moçambique/Portugal), adicionamos o offset ou tratamos nativamente:
+  let safeDate = new Date();
+  if (timeStr) {
+    const standardizedStr = timeStr.replace(" ", "T");
+    // Se a máquina estiver configurada em hora local, adicionamos o fuso horário ou lemos os blocos:
+    safeDate = new Date(standardizedStr);
+    
+    // Fallback de segurança se o parser do Node falhar
+    if (isNaN(safeDate.getTime())) {
+      const [datePart, timePart] = timeStr.split(" ");
+      const [year, month, day] = datePart.split("-").map(Number);
+      const [hour, minute, second] = timePart.split(":").map(Number);
+      safeDate = new Date(year, month - 1, day, hour, minute, second);
+    }
+  }
 
   return {
     pin,
-    timeStr,
-    eventType: eventType as "check_in" | "check_out" | "unknown",
-    verifyMethod: (verifyMap[verifyRaw] ?? "unknown") as
-      | "fingerprint"
-      | "face"
-      | "card"
-      | "password"
-      | "unknown",
+    eventTime: safeDate,
+    eventType,
+    verifyMethod: verifyMap[verifyRaw] ?? "unknown",
   };
 }
 
+// ---------------------------------------------------------------------------
+// GET: Handshake Inicial e Registro do Equipamento
+// ---------------------------------------------------------------------------
 export async function GET(req: NextRequest) {
   const sn = req.nextUrl.searchParams.get("SN");
   const table = req.nextUrl.searchParams.get("table");
@@ -61,30 +64,33 @@ export async function GET(req: NextRequest) {
     return new NextResponse("SN em falta", { status: 400 });
   }
 
-  // Pedido de configuração inicial do dispositivo - resposta mínima que a
-  // maioria dos firmwares aceita. Ajusta os valores conforme necessário.
+  // Pedido de handshake/opções do leitor (Ocorre quando liga o relógio à rede)
   if (!table) {
     const config = [
-      "GET OPTION FROM: " + sn,
+      `GET OPTION FROM: ${sn}`,
       "ATTLOGStamp=None",
       "OPERLOGStamp=None",
       "ErrorDelay=30",
       "Delay=10",
       "TransFlag=1111000000",
-      "TransInterval=1",
-      "Realtime=1",
+      "TransInterval=1", // Força o leitor a enviar os dados a cada 1 minuto
+      "Realtime=1",      // Ativa envio em tempo real instantâneo após a picagem
       "Encrypt=None",
     ].join("\n");
+
     return new NextResponse(config, {
       status: 200,
       headers: { "Content-Type": "text/plain" },
     });
   }
 
-  // /iclock/getrequest - por agora não enviamos comandos pendentes ao dispositivo
-  return new NextResponse("OK", { status: 200 });
+  // Fallback genérico para tabelas secundárias de sincronização
+  return new NextResponse("OK", { status: 200, headers: { "Content-Type": "text/plain" } });
 }
 
+// ---------------------------------------------------------------------------
+// POST: Recebimento das Picagens Brutas de Assiduidade
+// ---------------------------------------------------------------------------
 export async function POST(req: NextRequest) {
   const sn = req.nextUrl.searchParams.get("SN");
   if (!sn) {
@@ -94,32 +100,35 @@ export async function POST(req: NextRequest) {
   const rawBody = await req.text();
   const lines = rawBody.split("\n").filter((l) => l.trim().length > 0);
 
-  let processed = 0;
-  let failed = 0;
-
+  // Executamos o loop de processamento de linhas
   for (const line of lines) {
+    // Ignora linhas de controlo operacional do firmware da ZKTeco
+    if (line.startsWith("OPLOG") || line.startsWith("USER") || line.startsWith("FACE")) continue;
+
     const parsed = parseAttendanceLine(line);
     if (!parsed) continue;
 
     try {
       const event = NormalizedEventSchema.parse({
-        deviceSerialNumber: sn,
-        rawDeviceUserId: parsed.pin,
-        eventTime: new Date(parsed.timeStr.replace(" ", "T")),
+        deviceSerialNumber: sn, // Mapeia para a sua tabela "devices"
+        rawDeviceUserId: parsed.pin, // PIN interno do leitor (vai bater no seu deviceUserMap)
+        eventTime: parsed.eventTime,
         eventType: parsed.eventType,
         verifyMethod: parsed.verifyMethod,
-        rawPayload: { source: "zkteco_adms", line },
+        rawPayload: { source: "zkteco_adms", line: line.trim() },
       });
+
+      // Invoca o ingestor centralizado do seu SaaS
       await ingestEvent(event);
-      processed++;
     } catch (err) {
-      console.error("Falha ao processar linha ADMS:", line, err);
-      failed++;
+      console.error("Falha ao processar linha ADMS da ZKTeco:", line, err);
+      // Não abortamos o loop para que uma linha corrompida não bloqueie as restantes picagens do lote
     }
   }
 
-  // O dispositivo espera "OK" (ou o nº de registos aceites) em texto simples
-  return new NextResponse(`OK: ${processed} processados, ${failed} falhados`, {
+  // 🔴 CORREÇÃO OBRIGATÓRIA DE COMPATIBILIDADE:
+  // O firmware da ZKTeco exige estritamente a palavra "OK" isolada em texto simples para limpar a memória do leitor.
+  return new NextResponse("OK", {
     status: 200,
     headers: { "Content-Type": "text/plain" },
   });

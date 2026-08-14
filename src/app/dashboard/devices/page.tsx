@@ -3,49 +3,47 @@ import { devices, companies } from "@/db/schema";
 import { desc, eq } from "drizzle-orm";
 import DeviceModal from "./device-modal";
 import DeviceActions from "./device-actions";
-import { createClient } from "@/lib/server"; // Ajuste o caminho conforme o seu projeto do Supabase SSR
+import { createClient } from "@/lib/server"; 
 import { redirect } from "next/navigation";
+import Link from "next/link"; // Importação para o botão de ajuda
 
 export default async function DevicesPage() {
-  // 1. Inicializar o cliente do Supabase para ambiente de servidor
   const supabase = await createClient();
 
-  // 2. Recuperar o utilizador autenticado
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Se não estiver autenticado, redireciona para o login
   if (!user) {
     redirect("/login");
   }
 
-  // 3. Extrair a Role e o CompanyId dos metadados do utilizador (user_metadata no Supabase)
-  const userRole = user.user_metadata?.role as "Administrador" | "Gestor RH" | undefined;
+  const userRole = user.user_metadata?.role as "admin" | "gestor" | undefined;
   const currentUserCompanyId = user.user_metadata?.companyId as string | undefined;
 
-  // Segurança básica: impede o acesso se as propriedades críticas não existirem
   if (!userRole) {
     return <div className="p-6 text-red-500">Erro: Nível de acesso (Role) não configurado para este utilizador.</div>;
   }
 
-  if (userRole === "Gestor RH" && !currentUserCompanyId) {
-    return <div className="p-6 text-red-500">Erro: O seu utilizador não está vinculado a nenhuma empresa.</div>;
+  if (userRole === "gestor" && (!currentUserCompanyId || currentUserCompanyId.trim() === "")) {
+    return <div className="p-6 text-red-500">Erro: O seu utilizador está como Gestor mas não tem nenhuma empresa vinculada no Supabase.</div>;
   }
 
-  // 4. Definir Dinamicamente as Condições de Filtro com base na Role
-  // Se for Administrador, o filtro é indefinido (traz tudo). Se for Gestor RH, isola pelo companyId.
-  const isSuperAdmin = userRole === "Administrador";
-  
+  const isSuperAdmin = userRole === "admin";
+  const isCompanyIdValid = currentUserCompanyId && currentUserCompanyId.trim() !== "";
+
   const deviceFilter = isSuperAdmin 
     ? undefined 
-    : eq(devices.companyId, currentUserCompanyId!);
+    : isCompanyIdValid 
+      ? eq(devices.companyId, currentUserCompanyId)
+      : eq(devices.id, "00000000-0000-0000-0000-000000000000"); 
 
   const companyFilter = isSuperAdmin 
     ? undefined 
-    : eq(companies.id, currentUserCompanyId!);
+    : isCompanyIdValid 
+      ? eq(companies.id, currentUserCompanyId)
+      : eq(companies.id, "00000000-0000-0000-0000-000000000000");
 
-  // 5. Executar as Queries na Base de Dados com os Filtros Aplicados
   const allDevices = await db
     .select({
       id: devices.id,
@@ -60,7 +58,11 @@ export default async function DevicesPage() {
     .from(devices)
     .leftJoin(companies, eq(devices.companyId, companies.id))
     .where(deviceFilter)
-    .orderBy(desc(devices.createdAt));
+    .orderBy(desc(devices.createdAt))
+    .catch((err) => {
+      console.error("Erro na query de devices:", err);
+      return [];
+    });
 
   const allCompanies = await db
     .select({ 
@@ -68,21 +70,39 @@ export default async function DevicesPage() {
       name: companies.name 
     })
     .from(companies)
-    .where(companyFilter);
+    .where(companyFilter)
+    .catch((err) => {
+      console.error("Erro na query de companies:", err);
+      return [];
+    });
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Terminais Biométricos</h1>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-slate-500 mt-0.5">
             {isSuperAdmin 
               ? "Painel Global: Monitorização de todos os relógios de ponto do ecossistema." 
               : "Estado e ligação física dos relógios de ponto integrados na sua empresa."
             }
           </p>
         </div>
-        <DeviceModal companiesList={allCompanies} />
+        
+        {/* Bloco de Botões Alinhado */}
+        <div className="flex items-center gap-3 self-end sm:self-auto">
+          <Link
+            href="/dashboard/help/devices"
+            className="inline-flex items-center gap-2 px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-sm font-medium rounded-lg shadow-sm transition-colors cursor-pointer"
+          >
+            <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Como Conectar?
+          </Link>
+
+          <DeviceModal companiesList={allCompanies} />
+        </div>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
@@ -141,3 +161,4 @@ export default async function DevicesPage() {
     </div>
   );
 }
+
